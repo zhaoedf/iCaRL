@@ -1,0 +1,15 @@
+
+{
+    "seed": 30,
+    "batch_size": 128,
+    "learning_rate": 2.0,
+    "val_split_ratio": 0.0,
+    "num_workers": 8,
+    "backbone": "resnet32",
+    "datasets_dir":"/data/Public/Datasets",
+    "dataset":"CIFAR100",
+    "initial_increment": 20,
+    "increment": 20,
+    "memory_toal_size": 2000,
+    "memory_size_per_cls": 20
+}
