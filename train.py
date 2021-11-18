@@ -5,6 +5,8 @@ import numpy as np
 import logging
 import tqdm
 
+from functools import reduce
+
 import torch
 import torch.nn.functional as F
 from torchmetrics import Accuracy
@@ -14,7 +16,7 @@ from pytorch_lightning import seed_everything
 from pytorch_lightning.loggers import MLFlowLogger
 
 from mlflow.tracking import MlflowClient
-import mlflow
+# import mlflow
 
 # from continuum import ClassIncremental
 # from continuum.tasks import split_train_val
@@ -64,9 +66,10 @@ inc_scenario = incremental_scenario(
     test_additional_transforms = [],
     initial_increment = args_model.initial_increment,
     increment = args_model.increment,
-    datasets_dir = args_model.datasets_dir
+    datasets_dir = args_model.datasets_dir,
+    total_memory_size = args_model.total_memory_size
 )
-train_scenario, test_scenario = inc_scenario.get_incremental_scenarios(logger)
+train_scenario, test_scenario, memory = inc_scenario.get_incremental_scenarios(logger)
 
 
 
@@ -91,12 +94,18 @@ train_total_loss = MeanMetric().to(device)
 
 nb_seen_classes = args_model.initial_increment
 avg_incremental_acc = np.array([])
+old_model = None
 for task_id, taskset in enumerate(train_scenario):
     
     # update clssifier output dim
     print(f'update fc dims to {nb_seen_classes}')
     model.update_fc(nb_seen_classes)
     model = model.to(device)
+    
+    # add exemplars to train_set
+    if task_id > 0:
+        mem_x, mem_y, mem_t = memory.get()
+        taskset.add_samples(mem_x, mem_y, mem_t)
     
     # data
     train_set = taskset
@@ -107,27 +116,36 @@ for task_id, taskset in enumerate(train_scenario):
         batch_size=args_model.batch_size,
         shuffle=True,
         num_workers=args_model.num_workers,
-        drop_last=True
+        drop_last=False
     )
     test_loader = torch.utils.data.DataLoader(
         dataset=test_set,
         batch_size=args_model.batch_size,
         shuffle=True,
         num_workers=args_model.num_workers,
-        drop_last=True
+        drop_last=False
     )
 
 
     
     for epoch in range(args_trainer.max_epochs):
-
+        
         # train
+        model.train()
         for idx, batch in enumerate(train_loader):
             x, y, t = batch
             x, y = x.to(device), y.to(device) # changhong style
             logits = model(x)['logits']
-            y_one_hot = F.one_hot(y, num_classes=logits.shape[1]).type_as(logits)
-            loss = loss_func(logits, y_one_hot)
+            y_one_hot = F.one_hot(y, num_classes=logits.shape[1]).type_as(logits)  # expand_as 更优雅 TODO
+            
+            if old_model is None:
+                loss = loss_func(logits, y_one_hot)
+            else:
+                old_onehots = torch.sigmoid(old_model(x)['logits'].detach())
+                new_onehots = y_one_hot.clone()
+                # logger.info(f'{new_onehots.shape} {old_onehots.shape}')
+                new_onehots[:, :nb_seen_classes-args_model.increment] = old_onehots
+                loss = loss_func(logits, new_onehots)
             
             train_epoch_loss.update(loss)
             train_total_loss.update(loss)
@@ -170,7 +188,7 @@ for task_id, taskset in enumerate(train_scenario):
             y_one_hot = F.one_hot(y, num_classes=y_hat.shape[1]).type_as(y_hat)
             loss = F.binary_cross_entropy(y_hat, y_one_hot)  # binary_cross_entropy_with_logits is loss func with sigmoid inside.
             test_epoch_acc.update(y_hat, y)
-        model.train()
+        # model.train()
         
         # logger.info(f'Task: {task_id}, Epoch: {epoch+1}/{args_trainer.max_epochs}')
         # logger.info(f'avg_test_acc for [0:{nb_seen_classes}]  {avg_incremental_acc[-1]}')
@@ -192,10 +210,24 @@ for task_id, taskset in enumerate(train_scenario):
         test_epoch_acc.reset()
         logger.info('*'*75)
     
+    # constructing new exemplar set
+    # model.eval()
+    # get_extract_features = lambda x, model=model: model.extract_vector(x)
+    features = []
+    loader =  torch.utils.data.DataLoader(taskset, shuffle=False, batch_size=args_model.batch_size)
+    # logger.info(f'{len(memory)}')
+    for idx, (x,y,t) in enumerate(loader):
+        # print(idx)
+        features.append(model.extract_vector(x.to(device)).cpu().detach().numpy())
+    features = np.concatenate(tuple(features))
+    # logger.info(f'{len(features)}')
+    memory.add(
+        *train_scenario[task_id].get_raw_samples(), features
+    )
+    old_model = model.copy().freeze()
     
     nb_seen_classes += args_model.increment
-    
-    
+    # one increment end
 
 mlflow_logger.finalize(status='FINISHED')
 # client.set_terminated(run_id=run_id, status='FINISHED')

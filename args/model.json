@@ -10,6 +10,6 @@
     "dataset":"CIFAR100",
     "initial_increment": 20,
     "increment": 20,
-    "memory_toal_size": 2000,
-    "memory_size_per_cls": 20
+    "total_memory_size": 2000,
+    "fixed_memory": false
 }

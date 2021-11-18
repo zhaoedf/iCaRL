@@ -6,6 +6,7 @@ from torchvision.transforms import ToTensor, Lambda, Compose
 from torchvision import transforms
 
 from continuum import ClassIncremental
+from continuum import rehearsal
 from continuum.datasets import MNIST, CIFAR10, CIFAR100, ImageNet100, ImageNet1000
 
 PATH_DATASETS = "/data/Public/Datasets"
@@ -17,7 +18,9 @@ class incremental_scenario(object):
                 test_additional_transforms:list,
                 initial_increment:int,
                 increment:int,
-                datasets_dir:str = PATH_DATASETS): # 97 server
+                total_memory_size:int,
+                datasets_dir:str = PATH_DATASETS, # 97 server localtion
+                fixed_memory:bool = False):  # see notion
 
         super().__init__()
 
@@ -27,10 +30,13 @@ class incremental_scenario(object):
         self.test_additional_transforms = test_additional_transforms
         self.initial_increment = initial_increment
         self.increment = increment
+        self.total_memory_size = total_memory_size
+        self.fixed_memory = fixed_memory
 
         # download datasets and prepare transforms.
         self.prepare_data()
         self.setup()
+        
         
     def prepare_data(self):
         if self.dataset_name == "MNIST":
@@ -167,5 +173,26 @@ class incremental_scenario(object):
             transformations = test_transforms,
             class_order = self.class_order
         )
+        
+        # memory for exemplars
+        memory = rehearsal.RehearsalMemory(
+                memory_size = self.total_memory_size,
+                herding_method = 'barycenter',  # i.e. iCaRL's herding method
+                fixed_memory = self.fixed_memory,
+                nb_total_classes = self.nb_total_classes
+            )
+        # if self.fixed_memory:
+        #     self.memory = rehearsal.RehearsalMemory(
+        #         memory_size = self.memory_size,
+        #         herding_method = 'barycenter'  # i.e. iCaRL's herding method
+        #         fixed_memory = self.fixed_memory,
+        #         nb_total_classes = self.nb_total_classes
+        #     )
+        # else:
+        #     self.memory = rehearsal.RehearsalMemory(
+        #         memory_size = self.memory_size,
+        #         herding_method = 'barycenter'  # i.e. iCaRL's herding method
+        #     )
 
-        return train_scenario, test_scenario
+
+        return train_scenario, test_scenario, memory
