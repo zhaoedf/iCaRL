@@ -8,8 +8,8 @@
     "backbone": "resnet32",
     "datasets_dir":"/data/Public/Datasets",
     "dataset":"CIFAR100",
-    "initial_increment": 20,
-    "increment": 20,
+    "initial_increment": 50,
+    "increment": 50,
     "total_memory_size": 2000,
     "fixed_memory": false
 }

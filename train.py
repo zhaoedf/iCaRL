@@ -47,6 +47,12 @@ model = IncrementalNet(args_model.backbone, pretrained=False, gradcam=False)
 exp_name = "incremental_learning"
 mlflow_logger = MLFlowLogger(experiment_name=exp_name, tracking_uri="http://localhost:10500")
 run_id = mlflow_logger.run_id
+# changhong reproduce[github png]
+ch_data = [82.9, 75.1, 64.5, 57.1, 52.5]
+paper_data = [82.9, 72.3, 67.3, 60.8, 54.4]
+for i in range(len(ch_data)):
+    mlflow_logger.log_metrics({'ch_data': ch_data[i]}, step=i)
+    mlflow_logger.log_metrics({'paper_data': paper_data[i]}, step=i)
 # client = MlflowClient(tracking_uri='http://localhost:10500')
 # exp_id = client.get_experiment_by_name("incremental_learning").experiment_id
 # run_id = client.list_run_infos(exp_id)[0].run_id
@@ -72,14 +78,6 @@ inc_scenario = incremental_scenario(
 train_scenario, test_scenario, memory = inc_scenario.get_incremental_scenarios(logger)
 
 
-
-# optimizer & scheduler
-optimizer = torch.optim.SGD(
-    model.parameters(), lr=args_model.learning_rate, momentum=0.9, weight_decay=5e-5
-)
-lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
-    optimizer, milestones=[49,63], gamma=0.2
-)
 
 # loss function
 loss_func = F.binary_cross_entropy_with_logits
@@ -126,7 +124,13 @@ for task_id, taskset in enumerate(train_scenario):
         drop_last=False
     )
 
-
+    # optimizer & scheduler
+    optimizer = torch.optim.SGD(
+        model.parameters(), lr=args_model.learning_rate, momentum=0.9, weight_decay=5e-5
+    )
+    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
+        optimizer, milestones=[49,63], gamma=0.2
+    )
     
     for epoch in range(args_trainer.max_epochs):
         
@@ -169,6 +173,7 @@ for task_id, taskset in enumerate(train_scenario):
         logger.info(f'Task: {task_id}, Epoch: {epoch+1}/{args_trainer.max_epochs}')
         logger.info(f'train_epoch_loss => {train_epoch_loss.compute().item()} train_total_loss => {train_total_loss.compute().item()}')
         logger.info(f'train_epoch_acc => {train_epoch_acc.compute()} ')
+        logger.info(f'{lr_scheduler.get_lr()}')
         logger.info('*'*75)
         mlflow_logger.log_metrics({f'task{task_id}_train_epoch_loss': train_total_loss.compute().item()}, step=epoch)
         mlflow_logger.log_metrics({f'task{task_id}_train_epoch_acc': train_epoch_acc.compute().item()}, step=epoch)
@@ -199,8 +204,8 @@ for task_id, taskset in enumerate(train_scenario):
             logger.info('@'*50)
             logger.info(f'one increment end')
             avg_incremental_acc = np.append(avg_incremental_acc, acc_epoch)
-            logger.info(f'avg_incremental_acc for [0:{nb_seen_classes}] => {avg_incremental_acc.mean()}')
-            mlflow_logger.log_metrics({'avg_incremental_acc': avg_incremental_acc.mean()}, step=task_id)
+            logger.info(f'avg_incremental_acc for [0:{nb_seen_classes}] => {avg_incremental_acc[-1]}')  # avg_incremental_acc.mean()
+            mlflow_logger.log_metrics({'avg_incremental_acc': avg_incremental_acc[-1]*100}, step=task_id)
             logger.info('@'*50)
         
         # client.log_metric(run_id, key='avg_test_acc', value=test_Accuracy.compute().item(), step=task_id)
@@ -215,9 +220,8 @@ for task_id, taskset in enumerate(train_scenario):
     # get_extract_features = lambda x, model=model: model.extract_vector(x)
     features = []
     loader =  torch.utils.data.DataLoader(taskset, shuffle=False, batch_size=args_model.batch_size)
-    # logger.info(f'{len(memory)}')
     for idx, (x,y,t) in enumerate(loader):
-        # print(idx)
+        print(y.shape)
         features.append(model.extract_vector(x.to(device)).cpu().detach().numpy())
     features = np.concatenate(tuple(features))
     # logger.info(f'{len(features)}')
@@ -225,6 +229,7 @@ for task_id, taskset in enumerate(train_scenario):
         *train_scenario[task_id].get_raw_samples(), features
     )
     old_model = model.copy().freeze()
+    logger.info(f'{memory.memory_per_class}')
     
     nb_seen_classes += args_model.increment
     # one increment end

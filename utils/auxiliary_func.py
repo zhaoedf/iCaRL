@@ -3,6 +3,8 @@ import os
 import logging
 import tqdm
 
+import numpy as np
+
 
 # def setup_logger(name, formatter, log_file, level=logging.INFO):
 #     """To setup as many loggers as you want"""
@@ -52,3 +54,32 @@ def setup_logger(log_path, mlflow_runid):
     # logger.addHandler(TqdmLoggingHandler())
     
     return logger
+
+
+def get_class_mean(
+    y: np.ndarray,
+    t: np.ndarray,
+    features: np.ndarray,
+) -> np.ndarray:
+    """Herd the samples whose features is the closest to their class mean.
+    :param y: Labels of the data. shape:[nb_samples, ]
+    :param t: Task ids of the data.
+    :param features: Features of shape (nb_samples, nb_dim).
+    :return: The class prototype vector.
+    """
+    if len(features.shape) != 2:
+        raise ValueError(f"Expected features to have 2 dimensions, not {len(features.shape)}d.")
+    # indexes = []
+
+    means = []
+    for class_id in np.unique(y):
+        class_indexes = np.where(y == class_id)[0]
+        class_features = features[class_indexes] # from y.shape(above), it is easy to know the shape of "feature" is [nb_samples, feature_dim]
+        class_mean = np.mean(class_features, axis=1) # , keepdims=True
+
+        means.append(class_mean)
+        # dist_to_mean = np.linalg.norm(class_mean - class_features, axis=1)
+        # tmp_indexes = dist_to_mean.argsort()[:nb_per_class]
+        
+        # indexes.append(class_indexes[tmp_indexes])
+    return np.array(means)
