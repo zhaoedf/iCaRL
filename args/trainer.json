@@ -1,6 +1,6 @@
 
 {
-	"gpus": "4",
+	"gpus": "9",
 	"max_epochs":70,
 	"log_every_n_steps": 20
 }
